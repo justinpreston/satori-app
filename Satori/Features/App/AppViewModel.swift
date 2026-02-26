@@ -40,26 +40,27 @@ final class AppViewModel: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
     private var refreshTask: Task<Void, Never>?
+    private var isRefreshing = false
 
     init(
-        webSocketService: WebSocketServiceProtocol = WebSocketService(),
-        restClient: RESTClientProtocol = RESTClient(),
-        cliService: CLIServiceProtocol = CLIService(),
-        artifactStore: ArtifactStoreProtocol = ArtifactStore(),
+        webSocketService: WebSocketServiceProtocol? = nil,
+        restClient: RESTClientProtocol? = nil,
+        cliService: CLIServiceProtocol? = nil,
+        artifactStore: ArtifactStoreProtocol? = nil,
         settingsStore: SettingsStore = SettingsStore()
     ) {
-        self.webSocketService = webSocketService
-        self.restClient = restClient
-        self.cliService = cliService
-        self.artifactStore = artifactStore
+        self.webSocketService = webSocketService ?? WebSocketService()
+        self.restClient = restClient ?? RESTClient()
+        self.cliService = cliService ?? CLIService()
+        self.artifactStore = artifactStore ?? ArtifactStore()
         self.settingsStore = settingsStore
 
-        webSocketService.statusPublisher
+        self.webSocketService.statusPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.wsStatus = $0 }
             .store(in: &cancellables)
 
-        webSocketService.snapshotPublisher
+        self.webSocketService.snapshotPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] snapshot in
                 guard let self else { return }
@@ -95,19 +96,29 @@ final class AppViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        webSocketService.correlationAlertPublisher
+        self.webSocketService.correlationAlertPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.correlationAlerts = $0.alerts }
             .store(in: &cancellables)
 
-        webSocketService.lastMessageAtPublisher
+        self.webSocketService.lastMessageAtPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.lastMessageAt = $0 }
             .store(in: &cancellables)
 
-        webSocketService.latencyPublisher
+        self.webSocketService.latencyPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.latencyMs = $0 }
+            .store(in: &cancellables)
+
+        self.webSocketService.decodeErrorPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] error in
+                guard let self else { return }
+                if case let WebSocketDecodeError.contractMismatch(consecutiveCount, _) = error {
+                    infoBanner = "Dashboard contract mismatch (\(consecutiveCount) decode errors) — verify engine version."
+                }
+            }
             .store(in: &cancellables)
     }
 
@@ -158,6 +169,12 @@ final class AppViewModel: ObservableObject {
     }
 
     func refreshAll(showBlockingError: Bool = false) async {
+        if isRefreshing {
+            return
+        }
+        isRefreshing = true
+        defer { isRefreshing = false }
+
         guard let endpoints = resolvedEndpoints(from: settings, showBlockingErrors: showBlockingError) else {
             return
         }
@@ -291,6 +308,11 @@ final class AppViewModel: ObservableObject {
                         appendToLog(text)
                     case .stderr(let text):
                         appendToLog("[stderr] \(text)")
+                    case .timeout(let elapsed):
+                        appendToLog("[timeout] command exceeded \(Int(elapsed))s")
+                        commandLog?.running = false
+                        commandLog?.exitCode = -1
+                        infoBanner = "Command timed out after \(Int(elapsed))s"
                     case .didExit(let code):
                         commandLog?.running = false
                         commandLog?.exitCode = code

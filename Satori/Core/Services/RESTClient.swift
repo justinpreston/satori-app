@@ -2,6 +2,7 @@ import Foundation
 
 enum RESTClientError: LocalizedError {
     case badURL
+    case cancelled
     case badServerResponse(statusCode: Int, url: URL, bodySnippet: String)
     case decoding(url: URL, underlying: Error, bodySnippet: String)
 
@@ -9,6 +10,8 @@ enum RESTClientError: LocalizedError {
         switch self {
         case .badURL:
             "Bad URL"
+        case .cancelled:
+            "Request cancelled"
         case .badServerResponse(let statusCode, let url, let bodySnippet):
             "HTTP \(statusCode) at \(url.absoluteString). \(bodySnippet)"
         case .decoding(let url, let underlying, let bodySnippet):
@@ -19,9 +22,20 @@ enum RESTClientError: LocalizedError {
 
 actor RESTClient: RESTClientProtocol {
     private let session: URLSession
+    private let maxRetries: Int
+    private let backoffBase: TimeInterval
+    private let timeoutInterval: TimeInterval
 
-    init(session: URLSession = .shared) {
+    init(
+        session: URLSession = .shared,
+        maxRetries: Int = 2,
+        backoffBase: TimeInterval = 1.0,
+        timeoutInterval: TimeInterval = 10.0
+    ) {
         self.session = session
+        self.maxRetries = max(0, maxRetries)
+        self.backoffBase = max(0.1, backoffBase)
+        self.timeoutInterval = max(1.0, timeoutInterval)
     }
 
     func fetchStatus(baseURL: URL) async throws -> StatusResponse {
@@ -69,34 +83,83 @@ actor RESTClient: RESTClientProtocol {
             throw RESTClientError.badURL
         }
 
-        let (data, response) = try await session.data(from: url)
-        guard let http = response as? HTTPURLResponse else {
-            throw RESTClientError.badServerResponse(
-                statusCode: -1,
-                url: url,
-                bodySnippet: "Non-HTTP response"
-            )
-        }
-        guard (200...299).contains(http.statusCode) else {
-            throw RESTClientError.badServerResponse(
-                statusCode: http.statusCode,
-                url: url,
-                bodySnippet: bodyPreview(from: data)
-            )
-        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeoutInterval
 
-        do {
-            return try JSONCoder.dashboardDecoder.decode(T.self, from: data)
-        } catch {
-            if let sanitized = sanitizeNonFiniteNumbers(in: data),
-               let decoded = try? JSONCoder.dashboardDecoder.decode(T.self, from: sanitized) {
-                return decoded
+        var attempt = 0
+        while true {
+            do {
+                try Task.checkCancellation()
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse else {
+                    throw RESTClientError.badServerResponse(
+                        statusCode: -1,
+                        url: url,
+                        bodySnippet: "Non-HTTP response"
+                    )
+                }
+
+                if (500...599).contains(http.statusCode), attempt < maxRetries {
+                    attempt += 1
+                    try await backoffSleep(for: attempt)
+                    continue
+                }
+
+                guard (200...299).contains(http.statusCode) else {
+                    throw RESTClientError.badServerResponse(
+                        statusCode: http.statusCode,
+                        url: url,
+                        bodySnippet: bodyPreview(from: data)
+                    )
+                }
+
+                do {
+                    return try JSONCoder.dashboardDecoder.decode(T.self, from: data)
+                } catch {
+                    if let sanitized = sanitizeNonFiniteNumbers(in: data),
+                       let decoded = try? JSONCoder.dashboardDecoder.decode(T.self, from: sanitized) {
+                        return decoded
+                    }
+                    throw RESTClientError.decoding(
+                        url: url,
+                        underlying: error,
+                        bodySnippet: bodyPreview(from: data)
+                    )
+                }
+            } catch is CancellationError {
+                throw RESTClientError.cancelled
+            } catch let error as URLError {
+                if shouldRetry(error: error), attempt < maxRetries {
+                    attempt += 1
+                    try await backoffSleep(for: attempt)
+                    continue
+                }
+                throw error
+            } catch {
+                throw error
             }
-            throw RESTClientError.decoding(
-                url: url,
-                underlying: error,
-                bodySnippet: bodyPreview(from: data)
-            )
+        }
+    }
+
+    private func backoffSleep(for attempt: Int) async throws {
+        let delaySeconds = backoffBase * pow(2, Double(max(0, attempt - 1)))
+        let nanos = UInt64(delaySeconds * 1_000_000_000)
+        try await Task.sleep(nanoseconds: nanos)
+    }
+
+    private func shouldRetry(error: URLError) -> Bool {
+        switch error.code {
+        case .timedOut,
+             .cannotFindHost,
+             .cannotConnectToHost,
+             .networkConnectionLost,
+             .dnsLookupFailed,
+             .notConnectedToInternet,
+             .resourceUnavailable,
+             .secureConnectionFailed:
+            return true
+        default:
+            return false
         }
     }
 
@@ -119,9 +182,9 @@ actor RESTClient: RESTClientProtocol {
             return nil
         }
         let patterns = [
-            (#"([:\[,]\s*)-Infinity(\s*[,}\]])"#, "$1null$2"),
-            (#"([:\[,]\s*)Infinity(\s*[,}\]])"#, "$1null$2"),
-            (#"([:\[,]\s*)NaN(\s*[,}\]])"#, "$1null$2"),
+            (#"([:\[, ]\s*)-Infinity(\s*[,}\]])"#, "$1null$2"),
+            (#"([:\[, ]\s*)Infinity(\s*[,}\]])"#, "$1null$2"),
+            (#"([:\[, ]\s*)NaN(\s*[,}\]])"#, "$1null$2"),
         ]
 
         for (pattern, replacement) in patterns {
