@@ -28,10 +28,14 @@ final class CLIService: CLIServiceProtocol {
                 continuation.yield(.stderr(text))
             }
 
+            let stateQueue = DispatchQueue(label: "CLIService.state")
+            var didTimeout = false
+
             process.terminationHandler = { terminated in
                 stdoutPipe.fileHandleForReading.readabilityHandler = nil
                 stderrPipe.fileHandleForReading.readabilityHandler = nil
-                continuation.yield(.didExit(terminated.terminationStatus))
+                let code = stateQueue.sync { didTimeout ? Int32(-1) : terminated.terminationStatus }
+                continuation.yield(.didExit(code))
                 continuation.finish()
             }
 
@@ -43,6 +47,18 @@ final class CLIService: CLIServiceProtocol {
 
             do {
                 try process.run()
+                if request.timeoutSeconds > 0 {
+                    DispatchQueue.global().asyncAfter(deadline: .now() + request.timeoutSeconds) {
+                        let shouldTerminate = stateQueue.sync { () -> Bool in
+                            guard process.isRunning else { return false }
+                            didTimeout = true
+                            return true
+                        }
+                        guard shouldTerminate else { return }
+                        continuation.yield(.timeout(elapsed: request.timeoutSeconds))
+                        process.terminate()
+                    }
+                }
             } catch {
                 continuation.finish(throwing: error)
             }

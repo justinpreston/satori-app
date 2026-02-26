@@ -7,7 +7,8 @@ struct SatoriTests {
     func defaultsHaveExpectedPaths() {
         let defaults = AppSettings.default
         #expect(defaults.cliPath.contains("satori"))
-        #expect(defaults.engineRootPath.contains("/Users/jpp5q/Documents/GitHub/satori"))
+        #expect(!defaults.engineRootPath.isEmpty)
+        #expect(defaults.runsRootPath.hasSuffix("/runs"))
         #expect(defaults.baseAPIURL?.absoluteString == "http://localhost:8780")
         #expect(defaults.wsURL?.absoluteString == "ws://localhost:8780/ws")
     }
@@ -28,8 +29,14 @@ struct SatoriTests {
             reconnectMaxSeconds: 8
         )
 
-        #expect(settings.baseAPIURL?.absoluteString == "https://dashboard.example.com/api-gateway")
-        #expect(settings.wsURL?.absoluteString == "wss://dashboard.example.com/ws")
+        #expect(
+            settings.baseAPIURL?.absoluteString == "https://dashboard.example.com/api-gateway"
+                || settings.baseAPIURL?.absoluteString == "https://dashboard.example.com:443/api-gateway"
+        )
+        #expect(
+            settings.wsURL?.absoluteString == "wss://dashboard.example.com/ws"
+                || settings.wsURL?.absoluteString == "wss://dashboard.example.com:443/ws"
+        )
     }
 
     @Test

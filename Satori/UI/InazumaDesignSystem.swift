@@ -73,12 +73,57 @@ enum InazumaSeverity {
 struct InazumaStatusDot: View {
     let color: Color
     var size: CGFloat = 7
+    var filled: Bool = true
 
     var body: some View {
         Circle()
-            .fill(color)
+            .fill(filled ? color : .clear)
+            .overlay {
+                Circle().stroke(color, lineWidth: 1.3)
+            }
             .frame(width: size, height: size)
-            .shadow(color: color.opacity(0.25), radius: 2)
+            .shadow(color: color.opacity(0.22), radius: 2)
+    }
+}
+
+enum InazumaDirection {
+    case up
+    case down
+    case flat
+
+    var symbol: String {
+        switch self {
+        case .up:
+            return "arrow.up.right"
+        case .down:
+            return "arrow.down.right"
+        case .flat:
+            return "minus"
+        }
+    }
+}
+
+struct InazumaDirectionBadge: View {
+    let direction: InazumaDirection
+    let color: Color
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: direction.symbol)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(color)
+            Text(label)
+                .font(InazumaTypography.metric(size: 11, weight: .bold))
+                .foregroundStyle(color)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(color.opacity(0.12))
+        .overlay {
+            Capsule().stroke(color.opacity(0.3), lineWidth: 1)
+        }
+        .clipShape(Capsule())
     }
 }
 

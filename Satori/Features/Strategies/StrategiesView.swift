@@ -64,13 +64,21 @@ struct StrategiesView: View {
     private func strategyRow(_ strategy: StrategySummary) -> some View {
         let isSelected = selected?.id == strategy.id
         let detail = viewModel.detail(for: strategy)
+        let strategyState = StrategyState(rawValue: strategy.state)
 
         return Button {
             selected = strategy
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    InazumaStatusDot(color: stateColor(strategy.state), size: 6)
+                    InazumaStatusDot(
+                        color: stateColor(strategyState),
+                        size: 6,
+                        filled: stateDotFilled(strategyState)
+                    )
+                    Image(systemName: stateSymbol(strategyState))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(stateColor(strategyState))
                     Text(strategy.name)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(InazumaPalette.textPrimary)
@@ -81,12 +89,12 @@ struct StrategiesView: View {
                 }
 
                 HStack(spacing: 8) {
-                    InazumaPill(text: (strategy.state ?? "N/A").uppercased(), severity: stateSeverity(strategy.state), monospaced: true)
+                    InazumaPill(text: strategyState.label, severity: stateSeverity(strategyState), monospaced: true)
                     Text("Gates: N/A")
                         .font(InazumaTypography.metric(size: 10, weight: .medium))
                         .foregroundStyle(InazumaPalette.textMuted)
                     Spacer()
-                    Text(detail?.state ?? "N/A")
+                    Text(StrategyState(rawValue: detail?.state).label)
                         .font(InazumaTypography.metric(size: 10, weight: .medium))
                         .foregroundStyle(InazumaPalette.textMuted)
                 }
@@ -107,6 +115,7 @@ struct StrategiesView: View {
     private func detailPane(for strategy: StrategySummary) -> some View {
         let detail = viewModel.detail(for: strategy)
         let runs = strategyRuns(for: strategy)
+        let strategyState = StrategyState(rawValue: strategy.state)
 
         return ScrollView {
             VStack(alignment: .leading, spacing: 14) {
@@ -116,12 +125,12 @@ struct StrategiesView: View {
                             Text(strategy.name)
                                 .font(.system(size: 22, weight: .bold))
                                 .foregroundStyle(InazumaPalette.textPrimary)
-                            Text("State: \(strategy.state ?? "N/A")  |  Universe: \((detail?.universe ?? []).count) tickers")
+                            Text("State: \(strategyState.label)  |  Universe: \((detail?.universe ?? []).count) tickers")
                                 .font(InazumaTypography.metric(size: 12, weight: .medium))
                                 .foregroundStyle(InazumaPalette.textSecondary)
                         }
                         Spacer()
-                        InazumaPill(text: (strategy.state ?? "UNKNOWN").uppercased(), severity: stateSeverity(strategy.state), monospaced: true)
+                        InazumaPill(text: strategyState.label, severity: stateSeverity(strategyState), monospaced: true)
                     }
                 }
                 .inazumaCard(glow: true)
@@ -279,7 +288,9 @@ struct StrategiesView: View {
         case .sharpe:
             return filtered.sorted { ($0.pnl ?? -.infinity) > ($1.pnl ?? -.infinity) }
         case .status:
-            return filtered.sorted { ($0.state ?? "").localizedCaseInsensitiveCompare($1.state ?? "") == .orderedAscending }
+            return filtered.sorted {
+                StrategyState(rawValue: $0.state).label.localizedCaseInsensitiveCompare(StrategyState(rawValue: $1.state).label) == .orderedAscending
+            }
         case .lastRun:
             return filtered.sorted { lhs, rhs in
                 (strategyRuns(for: lhs).first?.timestamp ?? .distantPast) > (strategyRuns(for: rhs).first?.timestamp ?? .distantPast)
@@ -311,17 +322,51 @@ struct StrategiesView: View {
             .filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
-    private func stateSeverity(_ state: String?) -> InazumaSeverity {
-        guard let state else { return .muted }
-        let normalized = state.lowercased()
-        if normalized.contains("live") || normalized.contains("active") { return .safe }
-        if normalized.contains("shadow") { return .info }
-        if normalized.contains("paper") { return .warning }
-        return .muted
+    private func stateSeverity(_ state: StrategyState) -> InazumaSeverity {
+        switch state {
+        case .active, .live:
+            return .safe
+        case .shadow:
+            return .info
+        case .paper, .warmup, .cooling:
+            return .warning
+        case .paused, .stopped:
+            return .danger
+        case .unknown:
+            return .muted
+        }
     }
 
-    private func stateColor(_ state: String?) -> Color {
+    private func stateColor(_ state: StrategyState) -> Color {
         stateSeverity(state).color
+    }
+
+    private func stateSymbol(_ state: StrategyState) -> String {
+        switch state {
+        case .active, .live:
+            return "play.fill"
+        case .shadow:
+            return "moon.stars.fill"
+        case .paper:
+            return "doc.text.fill"
+        case .warmup, .cooling:
+            return "clock.fill"
+        case .paused:
+            return "pause.fill"
+        case .stopped:
+            return "stop.fill"
+        case .unknown:
+            return "questionmark"
+        }
+    }
+
+    private func stateDotFilled(_ state: StrategyState) -> Bool {
+        switch state {
+        case .paused, .stopped, .unknown:
+            return false
+        default:
+            return true
+        }
     }
 
     private func sharpeText(_ strategy: StrategySummary) -> String {
