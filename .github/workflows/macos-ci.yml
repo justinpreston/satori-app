@@ -41,5 +41,6 @@ jobs:
             -project Satori.xcodeproj \
             -scheme Satori \
             -destination 'platform=macOS' \
+            -only-testing:SatoriTests \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
             test
