@@ -7,6 +7,7 @@ protocol WebSocketServiceProtocol: AnyObject {
     var correlationAlertPublisher: AnyPublisher<CorrelationAlertMessage, Never> { get }
     var lastMessageAtPublisher: AnyPublisher<Date?, Never> { get }
     var latencyPublisher: AnyPublisher<Double, Never> { get }
+    var decodeErrorPublisher: AnyPublisher<Error, Never> { get }
 
     func configure(baseReconnectSeconds: Double, maxReconnectSeconds: Double)
     func connect(url: URL)

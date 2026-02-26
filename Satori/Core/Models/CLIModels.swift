@@ -5,18 +5,27 @@ struct CLIRequest {
     let arguments: [String]
     let workingDirectory: URL
     let environment: [String: String]
+    let timeoutSeconds: TimeInterval
 
-    init(executablePath: String, arguments: [String], workingDirectory: URL, environment: [String: String] = [:]) {
+    init(
+        executablePath: String,
+        arguments: [String],
+        workingDirectory: URL,
+        environment: [String: String] = [:],
+        timeoutSeconds: TimeInterval = 300
+    ) {
         self.executablePath = executablePath
         self.arguments = arguments
         self.workingDirectory = workingDirectory
         self.environment = environment
+        self.timeoutSeconds = timeoutSeconds
     }
 }
 
 enum CLIOutputEvent {
     case stdout(String)
     case stderr(String)
+    case timeout(elapsed: TimeInterval)
     case didExit(Int32)
 }
 

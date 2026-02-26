@@ -1,16 +1,33 @@
 import Combine
 import Foundation
 
+enum WebSocketDecodeError: LocalizedError {
+    case malformedPayload(consecutiveCount: Int, snippet: String)
+    case contractMismatch(consecutiveCount: Int, snippet: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .malformedPayload(let consecutiveCount, let snippet):
+            "Malformed websocket payload (\(consecutiveCount) consecutive). \(snippet)"
+        case .contractMismatch(let consecutiveCount, let snippet):
+            "Dashboard contract mismatch (\(consecutiveCount) consecutive decode failures). \(snippet)"
+        }
+    }
+}
+
 final class WebSocketService: WebSocketServiceProtocol {
     private let statusSubject = CurrentValueSubject<WebSocketConnectionStatus, Never>(.disconnected)
     private let snapshotSubject = PassthroughSubject<DashboardSnapshot, Never>()
     private let correlationAlertSubject = PassthroughSubject<CorrelationAlertMessage, Never>()
     private let lastMessageAtSubject = CurrentValueSubject<Date?, Never>(nil)
     private let latencySubject = CurrentValueSubject<Double, Never>(0)
+    private let decodeErrorSubject = PassthroughSubject<Error, Never>()
 
     private var reconnectBaseSeconds: Double = 1
     private var reconnectMaxSeconds: Double = 8
     private var reconnectAttempt: Int = 0
+    private var consecutiveDecodeErrors = 0
+    private let decodeFailureThreshold = 5
 
     private let session: URLSession
     private var task: URLSessionWebSocketTask?
@@ -35,6 +52,10 @@ final class WebSocketService: WebSocketServiceProtocol {
 
     var latencyPublisher: AnyPublisher<Double, Never> {
         latencySubject.eraseToAnyPublisher()
+    }
+
+    var decodeErrorPublisher: AnyPublisher<Error, Never> {
+        decodeErrorSubject.eraseToAnyPublisher()
     }
 
     init(session: URLSession = .shared) {
@@ -116,6 +137,7 @@ final class WebSocketService: WebSocketServiceProtocol {
         do {
             switch try DashboardContractAdapter.decodeMessage(from: data) {
             case .snapshot(let snapshot):
+                consecutiveDecodeErrors = 0
                 snapshotSubject.send(snapshot)
                 let now = Date()
                 lastMessageAtSubject.send(now)
@@ -123,10 +145,26 @@ final class WebSocketService: WebSocketServiceProtocol {
                     latencySubject.send(max(0, now.timeIntervalSince(serverTimestamp) * 1000))
                 }
             case .correlationAlert(let alert):
+                consecutiveDecodeErrors = 0
                 correlationAlertSubject.send(alert)
             }
         } catch {
-            // Ignore malformed payloads to preserve long-lived connection.
+            consecutiveDecodeErrors += 1
+            let snippet = String(data: data.prefix(200), encoding: .utf8) ?? "<non-utf8 payload>"
+            decodeErrorSubject.send(
+                WebSocketDecodeError.malformedPayload(
+                    consecutiveCount: consecutiveDecodeErrors,
+                    snippet: snippet
+                )
+            )
+            if consecutiveDecodeErrors >= decodeFailureThreshold {
+                decodeErrorSubject.send(
+                    WebSocketDecodeError.contractMismatch(
+                        consecutiveCount: consecutiveDecodeErrors,
+                        snippet: snippet
+                    )
+                )
+            }
         }
     }
 

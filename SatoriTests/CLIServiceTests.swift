@@ -21,6 +21,8 @@ struct CLIServiceTests {
                 receivedText += text
             case .stderr:
                 break
+            case .timeout:
+                break
             case .didExit(let code):
                 exit = code
             }
