@@ -29,4 +29,24 @@ struct CLIServiceTests {
         #expect(receivedText.contains("hello-cockpit"))
         #expect(exit == 0)
     }
+
+    @Test
+    func runCapturesStderr() async throws {
+        let service = CLIService()
+        let request = CLIRequest(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "echo warning >&2"],
+            workingDirectory: URL(fileURLWithPath: "/tmp")
+        )
+
+        var stderrText = ""
+
+        for try await event in service.run(request) {
+            if case let .stderr(text) = event {
+                stderrText += text
+            }
+        }
+
+        #expect(stderrText.contains("warning"))
+    }
 }
