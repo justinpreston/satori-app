@@ -48,6 +48,9 @@
 - Pod A Draft PR: https://github.com/justinpreston/satori-app/pull/1
 - Pod B Draft PR: https://github.com/justinpreston/satori-app/pull/2
 - Pod C Draft PR: https://github.com/justinpreston/satori-app/pull/3
+- Pod A Tracking Issue: https://github.com/justinpreston/satori-app/issues/7
+- Pod B Tracking Issue: https://github.com/justinpreston/satori-app/issues/8
+- Pod C Tracking Issue: https://github.com/justinpreston/satori-app/issues/9
 - External Blocker EXT-FIX-005: https://github.com/justinpreston/satori-app/issues/4
 - External Blocker EXT-FIX-012: https://github.com/justinpreston/satori-app/issues/5
 
