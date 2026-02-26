@@ -14,7 +14,7 @@
 - [x] Sync baseline from `origin/main`
 - [x] Create worktrees and train branches
 - [x] Publish handoff packets for Pods A/B/C
-- [ ] Open draft PRs from each pod branch to integration branch
+- [x] Open draft PRs from each pod branch to integration branch
 
 ### Tuesday to Thursday
 
@@ -40,8 +40,16 @@
 
 ## External Blockers (App-only scope)
 
-- [ ] EXT-FIX-005 created and linked
-- [ ] EXT-FIX-012 created and linked
+- [x] EXT-FIX-005 created and linked
+- [x] EXT-FIX-012 created and linked
+
+## Live Links
+
+- Pod A Draft PR: https://github.com/justinpreston/satori-app/pull/1
+- Pod B Draft PR: https://github.com/justinpreston/satori-app/pull/2
+- Pod C Draft PR: https://github.com/justinpreston/satori-app/pull/3
+- External Blocker EXT-FIX-005: https://github.com/justinpreston/satori-app/issues/4
+- External Blocker EXT-FIX-012: https://github.com/justinpreston/satori-app/issues/5
 
 ## Notes
 
