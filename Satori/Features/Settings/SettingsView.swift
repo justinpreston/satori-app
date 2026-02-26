@@ -24,15 +24,24 @@ struct SettingsView: View {
                     }
                     .buttonStyle(InazumaActionButtonStyle())
 
+                    Button("Test Connection") {
+                        viewModel.testConnection()
+                    }
+                    .buttonStyle(InazumaActionButtonStyle())
+                    .disabled(!viewModel.canSave || isTestingConnection)
+
                     Button("Save") {
                         viewModel.save()
                     }
                     .buttonStyle(InazumaActionButtonStyle())
                     .keyboardShortcut(.defaultAction)
+                    .disabled(!viewModel.canSave)
 
                     Spacer()
                 }
                 .padding(.top, 4)
+
+                connectionStateRow
             }
             .padding(16)
         }
@@ -58,10 +67,8 @@ struct SettingsView: View {
 
             TextField("Host", text: $viewModel.editable.host)
                 .inazumaInputField()
-            Stepper(value: $viewModel.editable.port, in: 1...65535) {
-                Text("Port: \(viewModel.editable.port.formatted(.number.grouping(.never)))")
-                    .font(.callout.weight(.semibold))
-            }
+            TextField("Port", text: $viewModel.portText)
+                .inazumaInputField()
 
             TextField("API Base Path (optional)", text: $viewModel.editable.apiBasePath)
                 .inazumaInputField()
@@ -72,6 +79,11 @@ struct SettingsView: View {
 
             resolvedURLRow("Resolved API URL", value: viewModel.editable.baseAPIURL?.absoluteString)
             resolvedURLRow("Resolved WS URL", value: viewModel.editable.wsURL?.absoluteString)
+
+            validationRow("Host", state: viewModel.validation.host)
+            validationRow("Port", state: viewModel.validation.port)
+            validationRow("API URL", state: viewModel.validation.apiURL)
+            validationRow("WebSocket URL", state: viewModel.validation.wsURL)
 
             Text("Use a remote host or domain here. For internet endpoints prefer https + wss.")
                 .font(InazumaTypography.caption)
@@ -91,6 +103,9 @@ struct SettingsView: View {
             pathRow(title: "Runs root", value: $viewModel.editable.runsRootPath) {
                 viewModel.pickDirectory(for: \.runsRootPath)
             }
+
+            validationRow("Engine root", state: viewModel.validation.engineRootPath)
+            validationRow("Runs root", state: viewModel.validation.runsRootPath)
         }
         .inazumaCard()
     }
@@ -195,6 +210,60 @@ struct SettingsView: View {
                 .buttonStyle(.bordered)
             }
         }
+    }
+
+    private func validationRow(_ title: String, state: ValidationState) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: state.isValid ? "checkmark.circle.fill" : "xmark.circle.fill")
+                .foregroundStyle(state.isValid ? InazumaPalette.green : InazumaPalette.red)
+            Text("\(title):")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(InazumaPalette.textSecondary)
+                .frame(width: 90, alignment: .leading)
+            Text(state.message ?? "Valid")
+                .font(.caption)
+                .foregroundStyle(state.isValid ? InazumaPalette.textMuted : InazumaPalette.red)
+            Spacer()
+        }
+    }
+
+    @ViewBuilder
+    private var connectionStateRow: some View {
+        switch viewModel.connectionState {
+        case .idle:
+            EmptyView()
+        case .testing:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Testing connection...")
+                    .font(.caption)
+                    .foregroundStyle(InazumaPalette.textSecondary)
+            }
+        case .success(let message):
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(InazumaPalette.green)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(InazumaPalette.textSecondary)
+            }
+        case .failure(let message):
+            HStack(spacing: 8) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(InazumaPalette.red)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(InazumaPalette.red)
+            }
+        }
+    }
+
+    private var isTestingConnection: Bool {
+        if case .testing = viewModel.connectionState {
+            return true
+        }
+        return false
     }
 }
 

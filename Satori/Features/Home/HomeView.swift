@@ -110,7 +110,7 @@ struct HomeView: View {
 
     private var topStatusBar: some View {
         HStack(spacing: 14) {
-            statusCell(color: InazumaPalette.cyan, text: viewModel.engineState)
+            statusCell(color: engineSeverityColor, text: "Engine \(engineState.label)")
             Divider().frame(height: 14)
             statusCell(color: marketStatusColor, text: "Market \(marketStatusText)")
             Divider().frame(height: 14)
@@ -148,9 +148,14 @@ struct HomeView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
 
-            Text(viewModel.dailyPnlPctText)
-                .font(InazumaTypography.metric(size: 12, weight: .semibold))
-                .foregroundStyle(InazumaPalette.textMuted)
+            HStack(spacing: 8) {
+                InazumaStatusDot(color: dailyPnlColor, size: 7, filled: isDailyPnlPositive)
+                InazumaDirectionBadge(
+                    direction: dailyPnlDirection,
+                    color: dailyPnlColor,
+                    label: dailyPnlDirectionText
+                )
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .inazumaCard(glow: true, borderColor: InazumaPalette.cyan.opacity(0.28))
@@ -361,6 +366,9 @@ struct HomeView: View {
                         Text(item.name)
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(InazumaPalette.textPrimary)
+                        Text(StrategyState(rawValue: item.state).label)
+                            .font(InazumaTypography.metric(size: 10, weight: .semibold))
+                            .foregroundStyle(InazumaPalette.textMuted)
                         Spacer()
                         Text(item.sharpeText)
                             .font(InazumaTypography.metric(size: 16, weight: .bold))
@@ -433,11 +441,12 @@ struct HomeView: View {
     private var recentAlerts: [HomeAlertItem] {
         if let alerts = app.dashboardSnapshot?.alerts, !alerts.isEmpty {
             return Array(alerts.prefix(3)).map { alert in
-                HomeAlertItem(
+                let severity = AlertSeverity(rawValue: alert.severity)
+                return HomeAlertItem(
                     id: alert.id,
                     message: alert.message,
-                    symbol: symbol(forSeverity: alert.severity),
-                    color: color(forSeverity: alert.severity),
+                    symbol: symbol(forSeverity: severity),
+                    color: color(forSeverity: severity),
                     relativeTime: alert.timestamp?.relativeTimeString() ?? "now"
                 )
             }
@@ -465,11 +474,10 @@ struct HomeView: View {
     }
 
     private var marketStatusText: String {
-        let state = app.dashboardSnapshot?.engineState?.uppercased() ?? "INIT"
-        switch state {
-        case "ACTIVE":
+        switch engineState {
+        case .active, .live:
             return "Open"
-        case "WARMUP", "COOLING":
+        case .warmup, .cooling:
             return "Transition"
         default:
             return "Closed"
@@ -490,6 +498,23 @@ struct HomeView: View {
     private var dailyPnlColor: Color {
         guard let value = app.riskMetrics?.dailyPnlPct else { return InazumaPalette.textPrimary }
         return value >= 0 ? InazumaPalette.green : InazumaPalette.red
+    }
+
+    private var dailyPnlDirection: InazumaDirection {
+        guard let value = app.riskMetrics?.dailyPnlPct else { return .flat }
+        if value > 0 { return .up }
+        if value < 0 { return .down }
+        return .flat
+    }
+
+    private var dailyPnlDirectionText: String {
+        guard let value = app.riskMetrics?.dailyPnlPct else { return "0.00%" }
+        let sign = value >= 0 ? "+" : "-"
+        return "\(sign)\(String(format: "%.2f", abs(value)))%"
+    }
+
+    private var isDailyPnlPositive: Bool {
+        (app.riskMetrics?.dailyPnlPct ?? 0) >= 0
     }
 
     private var dailyPnlDollarText: String {
@@ -546,18 +571,18 @@ struct HomeView: View {
     }
 
     private func strategyStatusColor(_ value: String?) -> Color {
-        guard let value else { return InazumaPalette.textMuted }
-        let normalized = value.lowercased()
-        if normalized.contains("active") || normalized.contains("live") {
+        switch StrategyState(rawValue: value) {
+        case .active, .live:
             return InazumaPalette.green
-        }
-        if normalized.contains("shadow") {
+        case .shadow:
             return InazumaPalette.blue
-        }
-        if normalized.contains("paper") {
+        case .paper, .warmup, .cooling:
             return InazumaPalette.amber
+        case .paused, .stopped:
+            return InazumaPalette.red
+        case .unknown:
+            return InazumaPalette.textMuted
         }
-        return InazumaPalette.textMuted
     }
 
     private func syntheticSparkline(seed: String) -> [Double] {
@@ -571,25 +596,46 @@ struct HomeView: View {
         return output
     }
 
-    private func symbol(forSeverity severity: String) -> String {
-        switch severity.lowercased() {
-        case "critical", "error":
+    private func symbol(forSeverity severity: AlertSeverity) -> String {
+        switch severity {
+        case .critical:
             "exclamationmark.octagon.fill"
-        case "warning":
+        case .warning:
             "exclamationmark.triangle.fill"
-        default:
+        case .info:
             "checkmark.circle.fill"
+        case .unknown:
+            "questionmark.circle.fill"
         }
     }
 
-    private func color(forSeverity severity: String) -> Color {
-        switch severity.lowercased() {
-        case "critical", "error":
+    private func color(forSeverity severity: AlertSeverity) -> Color {
+        switch severity {
+        case .critical:
             InazumaPalette.red
-        case "warning":
+        case .warning:
             InazumaPalette.amber
-        default:
+        case .info:
             InazumaPalette.green
+        case .unknown:
+            InazumaPalette.textMuted
+        }
+    }
+
+    private var engineState: StrategyState {
+        StrategyState(rawValue: app.dashboardSnapshot?.engineState ?? app.statusResponse?.engineState)
+    }
+
+    private var engineSeverityColor: Color {
+        switch EngineSeverity(engineState: app.dashboardSnapshot?.engineState ?? app.statusResponse?.engineState) {
+        case .safe:
+            return InazumaPalette.green
+        case .warning:
+            return InazumaPalette.amber
+        case .critical:
+            return InazumaPalette.red
+        case .unknown:
+            return InazumaPalette.textMuted
         }
     }
 }

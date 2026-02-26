@@ -1,5 +1,144 @@
 import Foundation
 
+enum StrategyState: Equatable {
+    case active
+    case live
+    case paper
+    case shadow
+    case warmup
+    case cooling
+    case paused
+    case stopped
+    case unknown(String)
+
+    init(rawValue: String?) {
+        let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        switch trimmed.lowercased() {
+        case "active":
+            self = .active
+        case "live":
+            self = .live
+        case "paper":
+            self = .paper
+        case "shadow":
+            self = .shadow
+        case "warmup":
+            self = .warmup
+        case "cooling":
+            self = .cooling
+        case "paused":
+            self = .paused
+        case "stopped":
+            self = .stopped
+        default:
+            self = .unknown(trimmed.isEmpty ? "UNKNOWN" : trimmed)
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .active:
+            return "ACTIVE"
+        case .live:
+            return "LIVE"
+        case .paper:
+            return "PAPER"
+        case .shadow:
+            return "SHADOW"
+        case .warmup:
+            return "WARMUP"
+        case .cooling:
+            return "COOLING"
+        case .paused:
+            return "PAUSED"
+        case .stopped:
+            return "STOPPED"
+        case .unknown:
+            return "UNKNOWN"
+        }
+    }
+}
+
+enum EngineSeverity: Equatable {
+    case safe
+    case warning
+    case critical
+    case unknown
+
+    init(engineState: String?) {
+        switch StrategyState(rawValue: engineState) {
+        case .active, .live:
+            self = .safe
+        case .warmup, .cooling, .paper, .shadow:
+            self = .warning
+        case .paused, .stopped:
+            self = .critical
+        case .unknown:
+            self = .unknown
+        }
+    }
+}
+
+enum AlertSeverity: Equatable {
+    case info
+    case warning
+    case critical
+    case unknown
+
+    init(rawValue: String?) {
+        let normalized = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        switch normalized {
+        case "info", "notice":
+            self = .info
+        case "warning", "warn":
+            self = .warning
+        case "critical", "error":
+            self = .critical
+        default:
+            self = .unknown
+        }
+    }
+}
+
+enum ValidationState: Equatable {
+    case valid
+    case invalid(String)
+
+    var isValid: Bool {
+        if case .valid = self {
+            return true
+        }
+        return false
+    }
+
+    var message: String? {
+        if case .invalid(let message) = self {
+            return message
+        }
+        return nil
+    }
+}
+
+enum SettingsConnectionTestState: Equatable {
+    case idle
+    case testing
+    case success(String)
+    case failure(String)
+}
+
+struct SettingsValidation: Equatable {
+    let host: ValidationState
+    let port: ValidationState
+    let apiURL: ValidationState
+    let wsURL: ValidationState
+    let engineRootPath: ValidationState
+    let runsRootPath: ValidationState
+
+    var canSave: Bool {
+        host.isValid && port.isValid && apiURL.isValid && wsURL.isValid
+    }
+}
+
 enum AppSection: String, CaseIterable, Identifiable {
     case home = "Home"
     case strategies = "Strategies"
@@ -62,19 +201,22 @@ struct AppSettings: Codable, Equatable {
     var reconnectBaseSeconds: Double
     var reconnectMaxSeconds: Double
 
-    static let `default` = AppSettings(
-        apiScheme: .http,
-        wsScheme: .ws,
-        host: "localhost",
-        port: 8780,
-        apiBasePath: "",
-        wsPath: "/ws",
-        cliPath: "/Users/jpp5q/Documents/GitHub/satori/.venv/bin/satori",
-        engineRootPath: "/Users/jpp5q/Documents/GitHub/satori",
-        runsRootPath: "/Users/jpp5q/Documents/GitHub/satori/runs",
-        reconnectBaseSeconds: 1,
-        reconnectMaxSeconds: 8
-    )
+    static let `default`: AppSettings = {
+        let resolvedPaths = resolveDefaultPaths()
+        return AppSettings(
+            apiScheme: .http,
+            wsScheme: .ws,
+            host: "localhost",
+            port: 8780,
+            apiBasePath: "",
+            wsPath: "/ws",
+            cliPath: resolvedPaths.cliPath,
+            engineRootPath: resolvedPaths.engineRootPath,
+            runsRootPath: resolvedPaths.runsRootPath,
+            reconnectBaseSeconds: 1,
+            reconnectMaxSeconds: 8
+        )
+    }()
 
     var wsURL: URL? {
         buildURL(scheme: wsScheme.rawValue, path: normalizedPath(wsPath, defaultPath: "/ws"))
@@ -82,6 +224,55 @@ struct AppSettings: Codable, Equatable {
 
     var baseAPIURL: URL? {
         buildURL(scheme: apiScheme.rawValue, path: normalizedPath(apiBasePath, defaultPath: ""))
+    }
+
+    func validation(portText: String? = nil) -> SettingsValidation {
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hostState: ValidationState = parsedHostPort == nil && trimmedHost.isEmpty
+            ? .invalid("Host is required")
+            : parsedHostPort == nil && !trimmedHost.contains(".") && trimmedHost != "localhost"
+                ? .invalid("Host is malformed")
+                : parsedHostPort == nil && trimmedHost.contains(" ")
+                    ? .invalid("Host is malformed")
+                    : .valid
+
+        let resolvedPortText = (portText ?? String(port)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsedPort = Int(resolvedPortText)
+        let portState: ValidationState
+        if let parsedPort, (1...65535).contains(parsedPort) {
+            portState = .valid
+        } else {
+            portState = .invalid("Port must be 1-65535")
+        }
+
+        let candidatePort = parsedPort ?? port
+        let apiURLState: ValidationState = buildURL(
+            scheme: apiScheme.rawValue,
+            path: normalizedPath(apiBasePath, defaultPath: ""),
+            overridePort: candidatePort
+        ) == nil ? .invalid("API URL is invalid") : .valid
+        let wsURLState: ValidationState = buildURL(
+            scheme: wsScheme.rawValue,
+            path: normalizedPath(wsPath, defaultPath: "/ws"),
+            overridePort: candidatePort
+        ) == nil ? .invalid("WebSocket URL is invalid") : .valid
+
+        let fileManager = FileManager.default
+        let engineState: ValidationState = fileManager.fileExists(atPath: engineRootPath)
+            ? .valid
+            : .invalid("Engine path not found")
+        let runsState: ValidationState = fileManager.fileExists(atPath: runsRootPath)
+            ? .valid
+            : .invalid("Runs path not found")
+
+        return SettingsValidation(
+            host: hostState,
+            port: portState,
+            apiURL: apiURLState,
+            wsURL: wsURLState,
+            engineRootPath: engineState,
+            runsRootPath: runsState
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -157,7 +348,7 @@ struct AppSettings: Codable, Equatable {
         return (parsedHost, components.port)
     }
 
-    private func buildURL(scheme: String, path: String) -> URL? {
+    private func buildURL(scheme: String, path: String, overridePort: Int? = nil) -> URL? {
         let parsed = parsedHostPort
         let resolvedHost = parsed?.host ?? host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !resolvedHost.isEmpty else { return nil }
@@ -165,9 +356,29 @@ struct AppSettings: Codable, Equatable {
         var components = URLComponents()
         components.scheme = scheme
         components.host = resolvedHost
-        components.port = parsed?.port ?? port
+        components.port = parsed?.port ?? overridePort ?? port
         components.path = path
         return components.url
+    }
+
+    private static func resolveDefaultPaths(fileManager: FileManager = .default) -> (cliPath: String, engineRootPath: String, runsRootPath: String) {
+        let home = fileManager.homeDirectoryForCurrentUser
+        let candidateRoots = [
+            home.appendingPathComponent("Documents/GitHub/satori"),
+            home.appendingPathComponent("github/satori"),
+            home.appendingPathComponent(".local/share/satori"),
+        ]
+
+        let engineRoot = candidateRoots.first(where: { fileManager.fileExists(atPath: $0.path) }) ?? candidateRoots[0]
+        let runsRoot = engineRoot.appendingPathComponent("runs")
+
+        let candidateCLIs = [
+            engineRoot.appendingPathComponent(".venv/bin/satori"),
+            home.appendingPathComponent(".local/bin/satori"),
+        ]
+        let cliPath = candidateCLIs.first(where: { fileManager.fileExists(atPath: $0.path) }) ?? candidateCLIs[0]
+
+        return (cliPath.path, engineRoot.path, runsRoot.path)
     }
 }
 
