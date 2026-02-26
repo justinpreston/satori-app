@@ -25,6 +25,7 @@ private final class MockURLProtocol: URLProtocol {
     override func stopLoading() {}
 }
 
+@Suite(.serialized)
 struct RESTClientTests {
     @Test
     func fetchRiskParsesPayload() async throws {

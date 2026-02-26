@@ -12,6 +12,7 @@ final class MockWebSocketService: WebSocketServiceProtocol {
     let correlationAlertSubject = PassthroughSubject<CorrelationAlertMessage, Never>()
     let lastMessageAtSubject = CurrentValueSubject<Date?, Never>(nil)
     let latencySubject = CurrentValueSubject<Double, Never>(0)
+    let decodeErrorSubject = PassthroughSubject<Error, Never>()
 
     private(set) var configuredValues: [(base: Double, max: Double)] = []
     private(set) var connectedURLs: [URL] = []
@@ -22,6 +23,7 @@ final class MockWebSocketService: WebSocketServiceProtocol {
     var correlationAlertPublisher: AnyPublisher<CorrelationAlertMessage, Never> { correlationAlertSubject.eraseToAnyPublisher() }
     var lastMessageAtPublisher: AnyPublisher<Date?, Never> { lastMessageAtSubject.eraseToAnyPublisher() }
     var latencyPublisher: AnyPublisher<Double, Never> { latencySubject.eraseToAnyPublisher() }
+    var decodeErrorPublisher: AnyPublisher<Error, Never> { decodeErrorSubject.eraseToAnyPublisher() }
 
     func configure(baseReconnectSeconds: Double, maxReconnectSeconds: Double) {
         configuredValues.append((baseReconnectSeconds, maxReconnectSeconds))

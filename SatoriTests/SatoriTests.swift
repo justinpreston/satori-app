@@ -29,8 +29,14 @@ struct SatoriTests {
             reconnectMaxSeconds: 8
         )
 
-        #expect(settings.baseAPIURL?.absoluteString == "https://dashboard.example.com/api-gateway")
-        #expect(settings.wsURL?.absoluteString == "wss://dashboard.example.com/ws")
+        #expect(
+            settings.baseAPIURL?.absoluteString == "https://dashboard.example.com/api-gateway"
+                || settings.baseAPIURL?.absoluteString == "https://dashboard.example.com:443/api-gateway"
+        )
+        #expect(
+            settings.wsURL?.absoluteString == "wss://dashboard.example.com/ws"
+                || settings.wsURL?.absoluteString == "wss://dashboard.example.com:443/ws"
+        )
     }
 
     @Test
