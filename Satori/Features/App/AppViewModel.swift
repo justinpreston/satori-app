@@ -157,6 +157,20 @@ final class AppViewModel: ObservableObject {
         }
     }
 
+    func testConnection(_ candidate: AppSettings) async -> SettingsConnectionTestState {
+        guard let endpoints = resolvedEndpoints(from: candidate, showBlockingErrors: false) else {
+            return .failure("Invalid server settings")
+        }
+
+        do {
+            let status = try await restClient.fetchStatus(baseURL: endpoints.apiURL)
+            let stamp = status.timestamp?.formatted(date: .omitted, time: .shortened) ?? "unknown"
+            return .success("Connected (engine: \(status.engineState), timestamp: \(stamp))")
+        } catch {
+            return .failure(shortError(error))
+        }
+    }
+
     func refreshAll(showBlockingError: Bool = false) async {
         guard let endpoints = resolvedEndpoints(from: settings, showBlockingErrors: showBlockingError) else {
             return
