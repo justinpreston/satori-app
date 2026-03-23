@@ -270,7 +270,7 @@ struct EquityPoint: Decodable, Identifiable {
 
 **Spec:**
 - Add to Home dashboard or dedicated section
-- Show: Polygon feed status, EventRecorder status, OMS queue depth
+- Show: Databento feed status, EventRecorder status, OMS queue depth
 - Task list with last-run timestamps and health indicators
 - OMS rate limiter state from `/api/oms/rate`
 
